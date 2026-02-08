@@ -1,0 +1,74 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
+
+async function getRole(supabase: any) {
+  const { data: userData } = await supabase.auth.getUser();
+  const user = userData?.user;
+  if (!user) return null;
+
+  const { data: staff, error } = await supabase
+    .schema("app")
+    .from("staff_users")
+    .select("role")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (error) return null;
+  return staff?.role ?? null;
+}
+
+export async function middleware(req: NextRequest) {
+  const res = NextResponse.next();
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => req.cookies.getAll(),
+        setAll: (cookiesToSet) => {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            res.cookies.set(name, value, options)
+          );
+        },
+      },
+    }
+  );
+
+  // Mantiene sesión viva (refresh de cookies si aplica)
+  await supabase.auth.getSession();
+
+  const path = req.nextUrl.pathname;
+
+  // Público
+  if (path === "/login") return res;
+
+  // Requiere staff
+  const role = await getRole(supabase);
+  if (!role) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("next", path);
+    return NextResponse.redirect(url);
+  }
+
+  // Admin-only
+  if (path.startsWith("/admin") && role !== "admin") {
+    const url = req.nextUrl.clone();
+    url.pathname = "/barber";
+    return NextResponse.redirect(url);
+  }
+
+  // Barber (o admin)
+  if (path.startsWith("/barber") && role !== "barber" && role !== "admin") {
+    const url = req.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
+  return res;
+}
+
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+};
