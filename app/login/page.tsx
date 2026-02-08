@@ -30,7 +30,7 @@ export default function LoginPage() {
     }
 
     // si llegó aquí, ya hay sesión guardada en el navegador
-    router.replace("/admin/customers");
+    router.replace("/admin");
   }
 
   return (
