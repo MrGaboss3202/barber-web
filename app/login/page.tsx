@@ -10,13 +10,18 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  const [showPass, setShowPass] = useState(false);
 
   async function doLogin(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setErr(null);
+    setInfo(null);
 
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
@@ -29,8 +34,34 @@ export default function LoginPage() {
       return;
     }
 
-    // si llegó aquí, ya hay sesión guardada en el navegador
+    // ✅ Ya hay sesión en el navegador
     router.replace("/admin");
+  }
+
+  async function sendReset() {
+    setBusy(true);
+    setErr(null);
+    setInfo(null);
+
+    const e = email.trim();
+    if (!e) {
+      setErr("Pon tu email para enviarte el link de cambio de contraseña.");
+      setBusy(false);
+      return;
+    }
+
+    const { error } = await supabase.auth.resetPasswordForEmail(e, {
+      redirectTo: `${window.location.origin}/update-password`,
+    });
+
+    if (error) {
+      setErr(`${error.message}${error.status ? ` (status ${error.status})` : ""}`);
+      setBusy(false);
+      return;
+    }
+
+    setInfo("✅ Listo. Revisa tu correo para cambiar la contraseña.");
+    setBusy(false);
   }
 
   return (
@@ -44,6 +75,12 @@ export default function LoginPage() {
           </div>
         )}
 
+        {info && (
+          <div className="mb-4 p-3 rounded bg-green-900/20 border border-green-800 text-green-200">
+            {info}
+          </div>
+        )}
+
         <label className="block text-sm text-zinc-200 mb-1">Email</label>
         <input
           className="w-full p-3 rounded bg-white text-black mb-4"
@@ -51,16 +88,32 @@ export default function LoginPage() {
           onChange={(e) => setEmail(e.target.value)}
           placeholder="eric@mr-gaboss.invalid"
           autoComplete="email"
+          disabled={busy}
         />
 
         <label className="block text-sm text-zinc-200 mb-1">Password</label>
-        <input
-          type="password"
-          className="w-full p-3 rounded bg-white text-black mb-4"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="current-password"
-        />
+
+        {/* Input + Ojito */}
+        <div className="relative mb-4">
+          <input
+            type={showPass ? "text" : "password"}
+            className="w-full p-3 pr-12 rounded bg-white text-black"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            disabled={busy}
+          />
+
+          <button
+            type="button"
+            onClick={() => setShowPass((v) => !v)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 rounded bg-zinc-200 hover:bg-white text-zinc-900 text-sm"
+            aria-label={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
+            disabled={busy}
+          >
+            {showPass ? "🙈" : "👁️"}
+          </button>
+        </div>
 
         <button
           type="submit"
@@ -68,6 +121,15 @@ export default function LoginPage() {
           className="w-full p-3 rounded bg-blue-600 text-white font-semibold disabled:opacity-60"
         >
           {busy ? "Entrando..." : "Entrar"}
+        </button>
+
+        <button
+          type="button"
+          onClick={sendReset}
+          disabled={busy}
+          className="w-full mt-3 p-3 rounded border border-zinc-700 bg-transparent text-zinc-200 font-semibold disabled:opacity-60"
+        >
+          Olvidé mi contraseña
         </button>
       </form>
     </div>
