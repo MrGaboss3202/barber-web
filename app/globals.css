@@ -28,3 +28,18 @@ kbd,
 samp {
   font-family: inherit !important;
 }
+
+/* html5-qrcode video/canvas fit (evita preview negro por estilos) */
+.qr-wrap video,
+#qr-reader video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
+.qr-wrap canvas,
+#qr-reader canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+

@@ -9,7 +9,6 @@ function extractTokenPrefix(raw: string): string | null {
   const s = (raw ?? "").trim();
   if (!s) return null;
 
-  // Si algún QR viejo trae URL, extraemos ?t=
   if (s.startsWith("http://") || s.startsWith("https://")) {
     try {
       const u = new URL(s);
@@ -19,7 +18,7 @@ function extractTokenPrefix(raw: string): string | null {
   }
 
   if (s.startsWith("t=")) return s.slice(2).trim();
-  return s; // token pelón
+  return s;
 }
 
 function nowLocalInput() {
@@ -42,7 +41,6 @@ async function safeJson(res: Response) {
 export default function BarberClient() {
   const [busy, setBusy] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
-
   const [status, setStatus] = useState<string>("Cámara detenida.");
 
   // Modal / Menú
@@ -72,8 +70,8 @@ export default function BarberClient() {
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // Intenta con ambos nombres por si tu función se llama distinto
-  const FUNCTION_CANDIDATES = ["add-visit", "admin-add-visit"];
+  // Tu función real suele ser admin-add-visit (pero dejo fallback por si acaso)
+  const FUNCTION_CANDIDATES = ["admin-add-visit", "add-visit"];
 
   async function getAccessTokenOrThrow() {
     const supabase = supabaseBrowser();
@@ -83,7 +81,9 @@ export default function BarberClient() {
 
     if (!token) {
       const { data: s2, error: e2 } = await supabase.auth.refreshSession();
-      if (e2 || !s2.session?.access_token) throw new Error("No hay sesión. Cierra sesión y vuelve a iniciar.");
+      if (e2 || !s2.session?.access_token) {
+        throw new Error("No hay sesión. Cierra sesión y vuelve a iniciar.");
+      }
       token = s2.session.access_token;
     }
 
@@ -92,7 +92,7 @@ export default function BarberClient() {
 
   async function callAddVisit(payload: any) {
     if (!SUPABASE_URL || !SUPABASE_ANON) {
-      throw new Error("Faltan NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_ANON_KEY en .env.local");
+      throw new Error("Faltan NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_ANON_KEY en Vercel/.env");
     }
 
     const supabase = supabaseBrowser();
@@ -100,7 +100,7 @@ export default function BarberClient() {
 
     const doFetch = async (fnName: string, tokenToUse: string) => {
       const url = `${SUPABASE_URL}/functions/v1/${fnName}`;
-      const res = await fetch(url, {
+      return fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -109,14 +109,12 @@ export default function BarberClient() {
         },
         body: JSON.stringify(payload),
       });
-      return res;
     };
 
-    // 1) Probar candidates hasta que no sea 404
     for (const fnName of FUNCTION_CANDIDATES) {
       let res = await doFetch(fnName, accessToken);
 
-      // Si JWT expiró / inválido: refresh y reintenta una vez
+      // si JWT expiró, refresh y reintenta 1 vez
       if (res.status === 401) {
         const { data: s2 } = await supabase.auth.refreshSession();
         if (s2.session?.access_token) {
@@ -125,20 +123,17 @@ export default function BarberClient() {
         }
       }
 
-      if (res.status === 404) continue; // intenta el siguiente nombre
+      if (res.status === 404) continue;
 
       const json = await safeJson(res);
       if (!res.ok) {
         const details = json?.details ? ` (${json.details})` : "";
         throw new Error(`Error ${res.status}: ${json?.error ?? "Edge Function error"}${details}`);
       }
-
       return json;
     }
 
-    throw new Error(
-      `No encuentro la Edge Function. Probé: ${FUNCTION_CANDIDATES.join(", ")} (endpoint 404).`
-    );
+    throw new Error(`No encuentro la Edge Function. Probé: ${FUNCTION_CANDIDATES.join(", ")}`);
   }
 
   async function resolveToken(tokenOrUrl: string) {
@@ -155,7 +150,7 @@ export default function BarberClient() {
     setToken("");
 
     try {
-      const json = await callAddVisit({ token_prefix, dry_run: true }); // solo resolver + flags
+      const json = await callAddVisit({ token_prefix, dry_run: true });
       if (!json?.ok) return;
 
       setToken(token_prefix);
@@ -216,20 +211,14 @@ export default function BarberClient() {
 
       setStatus("✅ Visita registrada.");
       setMenuOpen(false);
-      setNotes("");
-      setPromoKind("none");
-      setStartAtLocal(nowLocalInput());
-
-      // refrescar flags (para ⭐/🎂)
-      try {
-        const refresh = await callAddVisit({ customer_id: customer.customer_id, dry_run: true });
-        if (refresh?.ok) setFlags(refresh.flags ?? null);
-      } catch {}
 
       // listo para el siguiente
       setCustomer(null);
       setFlags(null);
       setToken("");
+      setNotes("");
+      setPromoKind("none");
+      setStartAtLocal(nowLocalInput());
     } catch (e: any) {
       setStatus(e?.message ?? String(e));
     } finally {
@@ -238,11 +227,11 @@ export default function BarberClient() {
   }
 
   async function startCamera() {
-    if (startedRef.current) return;
+    if (startedRef.current || busy) return;
     startedRef.current = true;
 
-    setStatus("Iniciando cámara...");
     setBusy(true);
+    setStatus("Iniciando cámara...");
 
     try {
       const mod = await import("html5-qrcode");
@@ -251,18 +240,47 @@ export default function BarberClient() {
       const html5QrCode = new Html5Qrcode("qr-reader");
       scannerRef.current = html5QrCode;
 
+      // ✅ FIX #1 (Android): elegir un cameraId REAL (evita preview negro)
+      let cameraConfig: any = { facingMode: "environment" };
+      try {
+        const cams = await Html5Qrcode.getCameras();
+        if (Array.isArray(cams) && cams.length > 0) {
+          const back =
+            cams.find((c: any) => /back|rear|environment/i.test(c.label || "")) ??
+            cams[cams.length - 1];
+          cameraConfig = back.id;
+        }
+      } catch {}
+
+      const config = {
+        fps: 12,
+        qrbox: (vw: number, vh: number) => {
+          const minEdge = Math.min(vw, vh);
+          const size = Math.floor(Math.min(320, minEdge * 0.75));
+          return { width: size, height: size };
+        },
+        aspectRatio: 1,
+        disableFlip: true,
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      };
+
       await html5QrCode.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 280, height: 280 } },
+        cameraConfig,
+        config,
         async (decodedText: string) => {
+          // Detener y limpiar para evitar doble scan
           try {
             await html5QrCode.stop();
           } catch {}
+          try {
+            await html5QrCode.clear();
+          } catch {}
+
           scannerRef.current = null;
           startedRef.current = false;
           setCameraOn(false);
 
-          // ✅ al escanear: abrir menú (NO inserta automático)
+          // ✅ al escanear: abre menú (NO inserta)
           await resolveToken(decodedText);
         },
         () => {}
@@ -274,28 +292,37 @@ export default function BarberClient() {
       startedRef.current = false;
       setCameraOn(false);
       setStatus("Error al iniciar cámara: " + (e?.message ?? String(e)));
+      try {
+        await scannerRef.current?.stop?.();
+        await scannerRef.current?.clear?.();
+      } catch {}
+      scannerRef.current = null;
     } finally {
       setBusy(false);
     }
   }
 
   async function stopCamera() {
-    const inst = scannerRef.current;
-    if (!inst) {
-      setCameraOn(false);
-      startedRef.current = false;
-      setStatus("Cámara detenida.");
-      return;
-    }
+    if (busy) return;
+
     setBusy(true);
     try {
-      await inst.stop();
-    } catch {}
-    scannerRef.current = null;
-    startedRef.current = false;
-    setCameraOn(false);
-    setStatus("Cámara detenida.");
-    setBusy(false);
+      const inst = scannerRef.current;
+      if (inst) {
+        try {
+          await inst.stop();
+        } catch {}
+        try {
+          await inst.clear();
+        } catch {}
+      }
+    } finally {
+      scannerRef.current = null;
+      startedRef.current = false;
+      setCameraOn(false);
+      setStatus("Cámara detenida.");
+      setBusy(false);
+    }
   }
 
   async function toggleCamera() {
@@ -314,36 +341,35 @@ export default function BarberClient() {
   const bdayOk = !!flags?.birthday_eligible_today;
 
   return (
-    <div className="px-6 pb-10">
-      {/* Solo el botón + vista cámara */}
+    <div className="px-6 pb-10 bg-white text-black min-h-[calc(100vh-80px)]">
+      {/* Botón cámara */}
       <div className="mt-6 flex flex-col items-start gap-3">
+        {/* ✅ FIX #2: color cambia verde ↔ rojo */}
         <button
           onClick={toggleCamera}
           disabled={busy}
-          className="w-44 h-44 rounded-2xl bg-green-600 hover:bg-green-500 disabled:opacity-60 shadow flex items-center justify-center"
+          className={[
+            "w-44 h-44 rounded-2xl shadow flex items-center justify-center disabled:opacity-60",
+            cameraOn ? "bg-red-500 hover:bg-red-400" : "bg-green-600 hover:bg-green-500",
+          ].join(" ")}
           title={cameraOn ? "Detener cámara" : "Iniciar cámara"}
         >
-          <img
-            src="/icons/camera.png"
-            alt="Cámara"
-            className="w-20 h-20"
-            draggable={false}
-          />
+          <img src="/icons/camera.png" alt="Cámara" className="w-20 h-20" draggable={false} />
         </button>
 
         <div className="text-sm text-zinc-700">{status}</div>
       </div>
 
-      {/* Vista de cámara (solo aparece cuando está encendida) */}
+      {/* Preview (mantenlo renderizado aunque esté hidden) */}
       <div className={cameraOn ? "mt-4" : "mt-4 hidden"}>
         <div
           id="qr-reader"
-          className="rounded-2xl border border-zinc-200 bg-black overflow-hidden"
+          className="qr-wrap rounded-2xl border border-zinc-200 bg-black overflow-hidden"
           style={{ width: "100%", maxWidth: 560, height: 420 }}
         />
       </div>
 
-      {/* MODAL menú después de escanear */}
+      {/* Modal menú */}
       {menuOpen && customer && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-white p-4">
@@ -368,12 +394,7 @@ export default function BarberClient() {
             </div>
 
             <label className="flex items-center gap-2 text-sm text-zinc-700 mb-3">
-              <input
-                type="checkbox"
-                checked={dryRun}
-                onChange={(e) => setDryRun(e.target.checked)}
-                disabled={busy}
-              />
+              <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} disabled={busy} />
               Modo prueba (NO registra)
             </label>
 
@@ -420,16 +441,7 @@ export default function BarberClient() {
             <div className="flex items-center justify-end gap-2">
               <button
                 className="px-4 py-2 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-900 border border-zinc-200 disabled:opacity-60"
-                onClick={() => {
-                  setMenuOpen(false);
-                  setCustomer(null);
-                  setFlags(null);
-                  setToken("");
-                  setNotes("");
-                  setPromoKind("none");
-                  setStartAtLocal(nowLocalInput());
-                  setStatus("Cámara detenida.");
-                }}
+                onClick={() => setMenuOpen(false)}
                 disabled={busy}
               >
                 Cancelar
