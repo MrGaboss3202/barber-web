@@ -86,7 +86,7 @@ export default function LoginPage() {
           className="w-full p-3 rounded bg-white text-black mb-4"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="eric@mr-gaboss.invalid"
+          placeholder="micorreo@gmail.com"
           autoComplete="email"
           disabled={busy}
         />

@@ -197,15 +197,15 @@ Deno.serve(async (req) => {
         customer_id,
         staff_user_id: user.id,
         start_at: dt.toISOString(),
-        visit_kind: "corte",
+        visit_kind: "corte",     // (por ahora lo dejamos así)
         source: "manual",
-        promo_kind,
+        promo_kind,              // "none" | "promo50" | "birthday"
         notes,
       })
       .select("id, customer_id, staff_user_id, start_at, visit_kind, source, notes, promo_kind")
       .single();
 
-    if (insErr) return json({ ok: false, error: "db_error", details: insErr.message }, 500);
+    if (insErr) return json({ ok: false, error: "db_error", details: insErr.message }, 400);
 
     // si existe recompute, se llama (si falla no rompe)
     const { error: rpcErr } = await supabaseAdmin

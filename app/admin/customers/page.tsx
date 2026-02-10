@@ -40,7 +40,8 @@ type SortKey =
   | "visits_asc"
   | "promos_desc"
   | "promos_asc"
-  | "last_desc";
+  | "last_desc"
+  | "last_asc";
 
 function onlyDigits(s: string) {
   return (s ?? "").replace(/\D/g, "");
@@ -118,8 +119,13 @@ export default function AdminCustomersPage() {
         return { sort_by: "promo_50_ok_cycles", sort_dir: "desc" as const };
       case "promos_asc":
         return { sort_by: "promo_50_ok_cycles", sort_dir: "asc" as const };
+
       case "last_desc":
         return { sort_by: "last_visit_at", sort_dir: "desc" as const };
+
+      case "last_asc": // ✅ NUEVO
+        return { sort_by: "last_visit_at", sort_dir: "asc" as const };
+
       case "name_desc":
         return { sort_by: "full_name", sort_dir: "desc" as const };
       case "name_asc":
@@ -242,6 +248,7 @@ export default function AdminCustomersPage() {
       const newTotal = data?.total ?? 0;
 
       setItems(newItems);
+      console.log("admin-customers first item:", newItems?.[0]);
       setTotal(newTotal);
 
       return { items: newItems, total: newTotal };
@@ -730,6 +737,8 @@ export default function AdminCustomersPage() {
             <option value="promos_desc">Promos (más → menos)</option>
             <option value="promos_asc">Promos (menos → más)</option>
             <option value="last_desc">Última visita (reciente → vieja)</option>
+            <option value="last_asc">Última visita (vieja → reciente)</option>
+
           </select>
         </div>
 
