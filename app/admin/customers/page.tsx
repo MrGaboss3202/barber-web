@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
 type PromoKind = "none" | "promo50" | "birthday";
@@ -22,6 +22,8 @@ type Item = {
   discount_progress?: number | null; // 0..3 (opcional)
 
   birthday_eligible_today?: boolean | null; // 🎂 ventana activa
+
+  row_color?: string | null;
 };
 
 type Visit = {
@@ -50,6 +52,22 @@ function onlyDigits(s: string) {
 function safeDateOnly(iso: string | null | undefined) {
   if (!iso) return "";
   return iso.slice(0, 10);
+}
+
+const DEFAULT_ROW_COLOR = "#ffffff";
+
+const ROW_COLOR_PRESETS = [
+  "#ffffff", // blanco
+  "#FFC83D", // amarillo suave
+  "#2B7FFF", // azul suave
+  "#29A842", // verde suave
+  "#E7180B", // rojo/rosa suave
+  "#F9B0BA", // morado suave
+];
+
+function normalizeRowColorHex(v: string | null | undefined) {
+  const s = (v ?? "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(s) ? s.toLowerCase() : DEFAULT_ROW_COLOR;
 }
 
 // ✅ incluye segundos (para evitar duplicados por minuto)
@@ -108,6 +126,45 @@ export default function AdminCustomersPage() {
   const [sortKey, setSortKey] = useState<SortKey>("name_asc");
   const [onlyStar, setOnlyStar] = useState(false);
   const [onlyCake, setOnlyCake] = useState(false);
+
+  const colorInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [colorSavingId, setColorSavingId] = useState<string | null>(null);
+
+  async function setCustomerRowColor(customerId: string, rowColor: string) {
+    const color = normalizeRowColorHex(rowColor);
+    setErr(null);
+
+    // Guardamos color previo por si falla
+    const previousColor =
+      items.find((x) => x.customer_id === customerId)?.row_color ?? DEFAULT_ROW_COLOR;
+
+    // Optimistic update (se pinta al instante)
+    setItems((prev) =>
+      prev.map((x) => (x.customer_id === customerId ? { ...x, row_color: color } : x))
+    );
+
+    setColorSavingId(customerId);
+
+    try {
+      await invokeAuth("admin-set-customer-row-color", {
+        customer_id: customerId,
+        row_color: color,
+      });
+    } catch (e: any) {
+      const msg = e?.message ?? String(e);
+      console.error("Error guardando row_color:", e);
+      setErr(msg);
+
+      // Revertir SOLO esa fila (sin recargar toda la tabla)
+      setItems((prev) =>
+        prev.map((x) =>
+          x.customer_id === customerId ? { ...x, row_color: previousColor } : x
+        )
+      );
+    } finally {
+      setColorSavingId(null);
+    }
+  }
 
   function getSortParams(key: SortKey) {
     switch (key) {
@@ -801,6 +858,7 @@ export default function AdminCustomersPage() {
               <th className="text-right p-3">Promos canjeadas</th>
               <th className="text-left p-3">Última</th>
               <th className="text-left p-3">Acciones</th>
+              <th className="text-center p-3">Color</th>
             </tr>
           </thead>
 
@@ -811,7 +869,11 @@ export default function AdminCustomersPage() {
               const showStar = credits > 0;
 
               return (
-                <tr key={it.customer_id} className="border-t border-zinc-200">
+                <tr
+                  key={it.customer_id}
+                  className="border-t border-zinc-200"
+                  style={{ backgroundColor: normalizeRowColorHex(it.row_color) }}
+                >
                   <td className="p-3">
                     <span className="font-medium">{it.full_name ?? "-"}</span>
 
@@ -841,7 +903,9 @@ export default function AdminCustomersPage() {
                   <td className="p-3 text-right">{it.total_visits ?? 0}</td>
                   <td className="p-3 text-right">{it.promo_50_ok_cycles ?? 0}</td>
 
-                  <td className="p-3">{it.last_visit_at ? new Date(it.last_visit_at).toLocaleString() : "-"}</td>
+                  <td className="p-3">
+                    {it.last_visit_at ? new Date(it.last_visit_at).toLocaleString() : "-"}
+                  </td>
 
                   <td className="p-3">
                     <div className="flex flex-wrap gap-2">
@@ -878,13 +942,80 @@ export default function AdminCustomersPage() {
                       </button>
                     </div>
                   </td>
+
+                  {/* ✅ Columna Color */}
+                  <td className="p-3 text-center">
+                    {(() => {
+                      const rowColor = normalizeRowColorHex(it.row_color);
+                      const isSavingColor = colorSavingId === it.customer_id;
+
+                      return (
+                        <div className="flex items-center justify-center gap-2">
+                          {/* Presets */}
+                          <div className="flex items-center gap-1">
+                            {ROW_COLOR_PRESETS.map((preset) => {
+                              const selected = rowColor === preset;
+                              return (
+                                <button
+                                  key={`${it.customer_id}-${preset}`}
+                                  type="button"
+                                  title={`Color ${preset}`}
+                                  disabled={isSavingColor}
+                                  onClick={() => setCustomerRowColor(it.customer_id, preset)}
+                                  className={`w-5 h-5 rounded border ${
+                                    selected ? "border-zinc-900 ring-1 ring-zinc-500" : "border-zinc-400"
+                                  } disabled:opacity-60`}
+                                  style={{ backgroundColor: preset }}
+                                />
+                              );
+                            })}
+                          </div>
+
+                          {/* Abrir picker personalizado */}
+                          <button
+                            type="button"
+                            title={isSavingColor ? "Guardando..." : "Personalizar color"}
+                            disabled={isSavingColor}
+                            onClick={() => colorInputRefs.current[it.customer_id]?.click()}
+                            className="px-2 py-1 text-xs rounded border border-zinc-300 bg-white hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            🎨
+                          </button>
+
+                          {/* Input color oculto */}
+                          <input
+                            ref={(el) => {
+                              colorInputRefs.current[it.customer_id] = el;
+                            }}
+                            type="color"
+                            value={rowColor}
+                            onChange={(e) => setCustomerRowColor(it.customer_id, e.target.value)}
+                            style={{ position: "absolute", opacity: 0, width: 0, height: 0, pointerEvents: "none" }}
+                            tabIndex={-1}
+                            aria-hidden="true"
+                          />
+
+                          {/* Reset a blanco */}
+                          <button
+                            type="button"
+                            title="Quitar color (blanco)"
+                            disabled={isSavingColor || rowColor === DEFAULT_ROW_COLOR}
+                            onClick={() => setCustomerRowColor(it.customer_id, DEFAULT_ROW_COLOR)}
+                            className="px-2 py-1 text-xs rounded border border-zinc-300 bg-white hover:bg-zinc-50 disabled:opacity-50"
+                          >
+                            ↺
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </td>
                 </tr>
               );
             })}
 
             {items.length === 0 && (
               <tr>
-                <td className="p-3 text-zinc-500" colSpan={7}>
+                <td className="p-3 text-zinc-500" colSpan={8}>
                   {busy ? "Cargando..." : "Sin resultados"}
                 </td>
               </tr>
