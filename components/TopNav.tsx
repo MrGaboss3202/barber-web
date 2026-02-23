@@ -30,41 +30,31 @@ export function TopNav(_props: Props) {
     >
       <div className="mx-auto max-w-7xl px-4 py-2 flex items-center justify-between">
         {/* Marca (Águila + Logo dorado) */}
-        <Link href="/admin" className="flex items-center gap-2 sm:gap-3 group min-w-0">
-          {/* Águila (ajustada para verse del tamaño visual del logo) */}
-          <div className="relative h-10 w-28 sm:h-12 sm:w-36 md:h-14 md:w-44 shrink-0 overflow-visible">
+        <Link
+          href="/admin"
+          className="flex items-center gap-2 sm:gap-3 group min-w-0"
+        >
+          {/* Águila: tamaño fijo para que no cambie entre localhost / Vercel */}
+          <div className="shrink-0 flex items-center">
             <Image
-              src="/icons/aguila.png"
+              src="/icons/aguila.png" // <- renombra el archivo para romper caché
               alt="Águila Mr Gaboss"
-              fill
+              width={150}
+              height={56}
               priority
-              sizes="(max-width: 640px) 112px, (max-width: 768px) 144px, 176px"
-              className="
-                object-contain object-center
-                scale-[2.85] sm:scale-[2.9] md:scale-[2.95]
-                -translate-y-[1px]
-                drop-shadow-[0_3px_10px_rgba(167,112,69,0.30)]
-                transition-transform duration-200
-                group-hover:scale-[1.6] sm:group-hover:scale-[1.65] md:group-hover:scale-[1.7]
-              "
+              className="h-auto w-[110px] sm:w-[130px] md:w-[150px] object-contain drop-shadow-[0_3px_10px_rgba(167,112,69,0.30)] transition-transform duration-200 group-hover:scale-[1.03]"
             />
           </div>
 
           {/* Logo texto dorado */}
-          <div className="relative h-10 w-28 sm:h-12 sm:w-36 md:h-14 md:w-44 shrink-0 overflow-hidden">
+          <div className="shrink-0 flex items-center">
             <Image
-              src="/icons/gaboss.png" // <-- CAMBIA por el nombre real del archivo
+              src="/icons/gaboss.png"
               alt="Mr Gaboss Barber Shop"
-              fill
+              width={180}
+              height={60}
               priority
-              sizes="(max-width: 640px) 112px, (max-width: 768px) 144px, 176px"
-              className="
-                object-contain object-center
-                scale-[1.08] sm:scale-[1.12] md:scale-[1.15]
-                drop-shadow-[0_3px_10px_rgba(195,160,132,0.18)]
-                transition-transform duration-200
-                group-hover:scale-[1.12] sm:group-hover:scale-[1.16] md:group-hover:scale-[1.2]
-              "
+              className="h-auto w-[120px] sm:w-[145px] md:w-[180px] object-contain drop-shadow-[0_3px_10px_rgba(195,160,132,0.18)] transition-transform duration-200 group-hover:scale-[1.02]"
             />
           </div>
         </Link>
